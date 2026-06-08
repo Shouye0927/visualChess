@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { processChessMoves } from "./utils/parseChessData";
 import { TimeSquare } from "./component/TimeSquare";
+import { ChessTree} from "./ChessTree" ;
 import { ChessDV} from "./ChessDV" ;
+
 
 function App() {
   // 建立存放資料與載入狀態的 State
@@ -11,6 +13,9 @@ function App() {
 
   //將步數狀態提升到 App 層，方便未來傳給「棋局畫面組件」
   const [currentPly, setCurrentPly] = useState(0);
+
+  // 🌟 新增：用來記錄目前顯示哪個「頁面」的 State (預設顯示 timeSquare)
+  const [activeView, setActiveView] = useState("timeSquare");
 
   // GitHub Raw Data 的雲端網址
   const DATA_URL =
@@ -113,55 +118,45 @@ function App() {
           開局：{gameData.metadata.Opening} ({gameData.metadata.ECO})
         </p>
       </header>
-
-      <main>
-        {/* 佈局：左右並排 */}
-        <div
+      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", justifyContent: "center" }}>
+        <button
+          onClick={() => setActiveView("timeSquare")}
           style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "flex-start",
-            gap: "40px",
-            flexWrap: "nowrap", // 強迫在寬螢幕下不換行
+            padding: "8px 16px",
+            cursor: "pointer",
+            backgroundColor: activeView === "timeSquare" ? "#3182ce" : "#e2e8f0",
+            color: activeView === "timeSquare" ? "white" : "black",
+            border: "none",
+            borderRadius: "4px",
+            fontWeight: "bold"
           }}
         >
-          {/* 左側：熱區圖 */}
-          <section style={{ flex: "0 0 auto" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                color: "#94a3b8",
-                marginBottom: "15px",
-              }}
-            >
-              思考時間熱區 (可點擊格子)
-            </h2>
-            <TimeSquare
-              processedMoves={processedMoves}
-              currentPly={currentPly}
-              setCurrentPly={setCurrentPly}
-            />
-          </section>
-
-          {/* 💡 2. 右側：實際即時棋盤 */}
-          <section style={{ flex: "0 0 auto" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                color: "#94a3b8",
-                marginBottom: "15px",
-              }}
-            >
-              當前棋局畫面
-            </h2>
-            <ChessboardViewer
-              processedMoves={processedMoves}
-              currentPly={currentPly}
-            />
-          </section>
-        </div>
+          Single Games
+        </button>
+        <button
+          onClick={() => setActiveView("chessDV")}
+          style={{
+            padding: "8px 16px",
+            cursor: "pointer",
+            backgroundColor: activeView === "chessDV" ? "#3182ce" : "#e2e8f0",
+            color: activeView === "chessDV" ? "white" : "black",
+            border: "none",
+            borderRadius: "4px",
+            fontWeight: "bold"
+          }}
+        >
+          Multiple Games
+        </button>
+      </div>
+      <main
+        style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}
+      >
+        {activeView === "timeSquare" ? (
+          <TimeSquare processedMoves={processedMoves} />
+        ) : (
+          <ChessTree/>
+        )}
       </main>
-      <ChessDV/>
     </div>
   );
 }

@@ -6,12 +6,6 @@ import * as d3 from 'd3';
 // ==========================================
 const TARGET_PLAYER = 'JackFoooo'; // Target player username (case-insensitive)
 
-// Board A Game Range [Start Game, End Game] (1-based index)
-const GAME_RANGE_A = [1, 100]; 
-
-// Board B Game Range [Start Game, End Game]
-const GAME_RANGE_B = [301, 400]; 
-
 const DATA_URL = 'https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/jackFoooo_Rapid.json';
 
 const FILES = ['a','b','c','d','e','f','g','h'];
@@ -106,7 +100,7 @@ function parseBishopCapturesForGameRange(sortedGames, colorFilter, startIdx, end
 
     for (const move of game.moves) {
       const attackerColor = move.color;
-      const isTargetMove = (isWhite && attackerColor === 'white') || (!isWhite && attackerColor === 'black');
+      const isOpponentMove = (isWhite && attackerColor === 'black') || (!isWhite && attackerColor === 'white');
       const capturedSq = parseBishopCapture(move.notation);
 
       if (capturedSq) {
@@ -120,7 +114,7 @@ function parseBishopCapturesForGameRange(sortedGames, colorFilter, startIdx, end
           }
         }
 
-        if (toIdx && isTargetMove && isRookCaptured) {
+        if (toIdx && isOpponentMove && isRookCaptured) {
           const moveInfo = parseMove(move.notation, chessBoard, attackerColor);
 
           if (colorFilter === 'all' || colorFilter === attackerColor) {
@@ -158,13 +152,13 @@ function parseBishopCapturesForGameRange(sortedGames, colorFilter, startIdx, end
 // ══════════════════════════════════════════
 // Subcomponent: Elo Trend Chart (Synchronized Game Range)
 // ══════════════════════════════════════════
-function EloTrendChart({ trendData }) {
+function EloTrendChart({ trendData, splitPoint, onSplitChange }) {
   const svgRef = useRef(null);
 
   useEffect(() => {
     if (!trendData || !trendData.length || !svgRef.current) return;
 
-    const margin = { top: 20, right: 30, bottom: 35, left: 50 };
+    const margin = { top: 30, right: 30, bottom: 35, left: 50 };
     const width = 1036 - margin.left - margin.right;
     const height = 180 - margin.top - margin.bottom;
 
@@ -176,7 +170,9 @@ function EloTrendChart({ trendData }) {
     // 1. Scales
     const xScale = d3.scaleLinear()
       .domain([1, trendData.length])
-      .range([0, width]);
+      .range([0, width])
+      .clamp(true);
+
 
     const yMin = d3.min(trendData, d => d.rating) || 0;
     const yMax = d3.max(trendData, d => d.rating) || 2000;
@@ -216,22 +212,23 @@ function EloTrendChart({ trendData }) {
 
     // 3. Highlighted Game Range Background Bands
     // Range A Background (Tan)
-    g.append('rect')
-      .attr('x', xScale(GAME_RANGE_A[0]))
-      .attr('width', xScale(GAME_RANGE_A[1]) - xScale(GAME_RANGE_A[0]))
+    const bandA = g.append('rect')
+      .attr('class', 'band-a')
+      .attr('x', xScale(1))
+      .attr('width', Math.max(0, xScale(splitPoint) - xScale(1)))
       .attr('y', 0)
       .attr('height', height)
       .attr('fill', '#e8dcc8')
-      .attr('opacity', 0.35);
+      .attr('opacity', 0.45);
 
-    // Range B Background (Light Blue)
-    g.append('rect')
-      .attr('x', xScale(GAME_RANGE_B[0]))
-      .attr('width', xScale(GAME_RANGE_B[1]) - xScale(GAME_RANGE_B[0]))
+    const bandB = g.append('rect')
+      .attr('class', 'band-b')
+      .attr('x', xScale(splitPoint + 1))
+      .attr('width', Math.max(0, xScale(totalGames) - xScale(splitPoint + 1)))
       .attr('y', 0)
       .attr('height', height)
       .attr('fill', '#d0e0f0')
-      .attr('opacity', 0.35);
+      .attr('opacity', 0.45);
 
     // 4. Line Generator & Path
     const line = d3.line()
@@ -262,14 +259,72 @@ function EloTrendChart({ trendData }) {
       .append('title')
       .text(d => `Game: No. ${d.gameIndex}\nDate: ${d3.timeFormat("%Y-%m-%d")(d.date)}\nElo: ${d.rating}`);
 
-  }, [trendData]);
+const drag = d3.drag()
+      .on('drag', (event) => {
+        // 即時拖曳視覺更新 (不動到 React 狀態以確保流暢)
+        let newSplit = Math.round(xScale.invert(event.x));
+        newSplit = Math.max(2, Math.min(newSplit, totalGames - 1));
+
+        d3.select('.drag-line').attr('x1', xScale(newSplit)).attr('x2', xScale(newSplit));
+        d3.select('.drag-handle').attr('cx', xScale(newSplit));
+        d3.select('.drag-label').attr('x', xScale(newSplit)).text(`Split at Game ${newSplit}`);
+
+        // 即時更新背景寬度
+        bandA.attr('width', Math.max(0, xScale(newSplit) - xScale(1)));
+        bandB.attr('x', xScale(newSplit + 1)).attr('width', Math.max(0, xScale(totalGames) - xScale(newSplit + 1)));
+      })
+      .on('end', (event) => {
+        // 放開滑鼠時，才正式通知 React 改變狀態並重新運算資料
+        let newSplit = Math.round(xScale.invert(event.x));
+        newSplit = Math.max(2, Math.min(newSplit, totalGames - 1));
+        onSplitChange(newSplit);
+      });
+
+    const dragGroup = g.append('g')
+      .attr('class', 'drag-group')
+      .style('cursor', 'ew-resize') // 滑鼠顯示為左右箭頭
+      .call(drag);
+
+    // 繪製虛線
+    dragGroup.append('line')
+      .attr('class', 'drag-line')
+      .attr('x1', xScale(splitPoint))
+      .attr('x2', xScale(splitPoint))
+      .attr('y1', -20)
+      .attr('y2', height)
+      .attr('stroke', '#cc0000')
+      .attr('stroke-width', 2.5)
+      .attr('stroke-dasharray', '6,4');
+
+    // 繪製控制點 (圓圈)
+    dragGroup.append('circle')
+      .attr('class', 'drag-handle')
+      .attr('cx', xScale(splitPoint))
+      .attr('cy', height / 2)
+      .attr('r', 9)
+      .attr('fill', '#cc0000')
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 2);
+
+    // 繪製文字標籤
+    dragGroup.append('text')
+      .attr('class', 'drag-label')
+      .attr('x', xScale(splitPoint))
+      .attr('y', -25)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 12)
+      .attr('fill', '#cc0000')
+      .attr('font-weight', 'bold')
+      .text(`Split at Game ${splitPoint}`);
+
+  }, [trendData, splitPoint, onSplitChange]);
 
   return (
     <div style={{ background: '#fcfaf2', padding: '16px', borderRadius: 8, boxShadow: '0 4px 15px rgba(0,0,0,0.08)', marginBottom: '2rem' }}>
       <h3 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#2c1810', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>📈 Elo Rating Trend by Game Count</span>
         <span style={{ fontSize: 12, fontWeight: 'normal', color: '#8b7355' }}>
-          Tan Band: Range A (G {GAME_RANGE_A[0]}-{GAME_RANGE_A[1]}) | Blue Band: Range B (G {GAME_RANGE_B[0]}-{GAME_RANGE_B[1]})
+          Tan Band: Range A | Blue Band: Range B
         </span>
       </h3>
       <svg ref={svgRef} width="100%" height="180" viewBox="0 0 1036 180" style={{ display: 'block' }} />
@@ -466,6 +521,9 @@ export function ChessDV() {
   const [ttPos, setTtPos] = useState({ x: 0, y: 0 });
   const [selected, setSelected] = useState(null);
 
+  const [sortedGamesData, setSortedGamesData] = useState([]);
+  const [totalGamesCount, setTotalGamesCount] = useState(0);
+  const [splitPoint, setSplitPoint] = useState(150);
   // Sorted and cleaned trend data
   const [trendData, setTrendData] = useState([]);
 
@@ -506,18 +564,28 @@ export function ChessDV() {
       rating: d.rating,
       date: d.date
     }));
+    setSortedGamesData(sorted);
     setTrendData(trend);
+    setTotalGamesCount(sorted.length);
+    
+    setSplitPoint(Math.floor(sorted.length / 2));
 
-    // 2. Parse bishop captures for both game ranges
-    const resultA = parseBishopCapturesForGameRange(sorted, color, GAME_RANGE_A[0], GAME_RANGE_A[1]);
+  }, [games]);
+
+  useEffect(() => {
+    if (sortedGamesData.length === 0) return;
+
+    // Range A: 第 1 場 到 切割點
+    const resultA = parseBishopCapturesForGameRange(sortedGamesData, color, 1, splitPoint);
     setRangeAData(resultA.flatData);
     setRangeAGamesCount(resultA.gameCount);
 
-    const resultB = parseBishopCapturesForGameRange(sorted, color, GAME_RANGE_B[0], GAME_RANGE_B[1]);
+    // Range B: 切割點 + 1 到 最後一場
+    const resultB = parseBishopCapturesForGameRange(sortedGamesData, color, splitPoint + 1, totalGamesCount);
     setRangeBData(resultB.flatData);
     setRangeBGamesCount(resultB.gameCount);
 
-  }, [games, color]);
+  }, [sortedGamesData, color, splitPoint, totalGamesCount]);
 
   const maxVal = d3.max([...rangeAData, ...rangeBData], d => d.total) || 1;
   const totalCapturesA = rangeAData.reduce((s, d) => s + d.total, 0);
@@ -545,22 +613,22 @@ export function ChessDV() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <h1 style={{ fontSize: 26, color: '#2c1810', marginBottom: 4 }}>
-          {TARGET_PLAYER}'s Bishop Captures Rook: Game Range Comparison
+          {TARGET_PLAYER}'s 's Rook Captured by Bishop: Game Range Comparison
         </h1>
         <hr style={{ borderColor: '#c8b89a', marginBottom: 14 }} />
 
         <div style={{ color: '#5c4a32', fontSize: 13, marginBottom: 16, lineHeight: 1.9 }}>
-          <p>🎯 Heatmaps only track games where <strong>{TARGET_PLAYER}</strong>'s <strong>Bishop captured the opponent's Rook</strong>.</p>
-          <p>📐 Both boards share the same cross-size scale for direct visual comparison between different game ranges.</p>
-          <p>🖱️ <strong>Hover</strong> over a square to see stats. <strong>Click</strong> a square to reveal the sniping paths.</p>
+          <p>Heatmaps only track games where <strong>{TARGET_PLAYER}</strong>'s <strong>Rook was captured by the opponent's Bishop</strong>.</p>
+          <p>Both boards share the same cross-size scale for direct visual comparison between different game ranges.</p>
+          <p><strong>Hover</strong> over a square to see stats. <strong>Click</strong> a square to reveal the sniping paths.</p>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={{ fontSize: 13, color: '#5c4a32', marginRight: 8 }}>Bishop Color:</span>
+          <span style={{ fontSize: 13, color: '#5c4a32', marginRight: 8 }}>Color:</span>
           {[
             ['all', 'All'], 
-            ['white', 'White Bishop ♗'], 
-            ['black', 'Black Bishop ♝']
+            ['white', 'White'], 
+            ['black', 'Black']
           ].map(([v, l]) => (
             <button key={v} style={btnStyle(color === v)} onClick={() => setColor(v)}>{l}</button>
           ))}
@@ -581,7 +649,7 @@ export function ChessDV() {
         {!loading && !error && (
           <>
             {/* 📈 Elo Trend Chart */}
-            <EloTrendChart trendData={trendData} />
+            <EloTrendChart trendData={trendData} splitPoint={splitPoint} onSplitChange={setSplitPoint} />
 
             {/* Double Board Layout */}
             <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -590,7 +658,7 @@ export function ChessDV() {
               <div style={{ flex: '1 1 450px', minWidth: 350, textAlign: 'center' }}>
                 <div style={{ marginBottom: 12, padding: '10px', background: '#e8dcc8', borderRadius: 8 }}>
                   <h3 style={{ margin: '0 0 4px 0', color: '#2c1810' }}>
-                    Range A (G {GAME_RANGE_A[0]} - {GAME_RANGE_A[1]})
+                    Range A (G 1 - {splitPoint})
                   </h3>
                   <div style={{ fontSize: 12, color: '#5c4a32', display: 'flex', justifyContent: 'space-around' }}>
                     <span>Analyzed: <strong>{rangeAGamesCount}</strong> games</span>
@@ -604,7 +672,7 @@ export function ChessDV() {
               <div style={{ flex: '1 1 450px', minWidth: 350, textAlign: 'center' }}>
                 <div style={{ marginBottom: 12, padding: '10px', background: '#d0e0f0', borderRadius: 8 }}>
                   <h3 style={{ margin: '0 0 4px 0', color: '#2c1810' }}>
-                    Range B (G {GAME_RANGE_B[0]} - {GAME_RANGE_B[1]})
+                    Range B (G {splitPoint + 1} - {totalGamesCount})
                   </h3>
                   <div style={{ fontSize: 12, color: '#5c4a32', display: 'flex', justifyContent: 'space-around' }}>
                     <span>Analyzed: <strong>{rangeBGamesCount}</strong> games</span>
