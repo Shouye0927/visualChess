@@ -457,7 +457,7 @@ function AttackDetailChart({ cellData, onClose }) {
 // ══════════════════════════════════════════
 // 主元件
 // ══════════════════════════════════════════
-export default function App() {
+export function ChessDV() {
   const [games, setGames] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

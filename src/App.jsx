@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { processChessMoves } from "./utils/parseChessData";
 import { TimeSquare } from "./component/TimeSquare";
+import { ChessDV} from "./ChessDV" ;
 
 function App() {
   // 建立存放資料與載入狀態的 State
@@ -108,6 +109,7 @@ function App() {
         {/* 將非同步解析完的資料傳給 D3 棋盤 */}
         <TimeSquare processedMoves={processedMoves} />
       </main>
+      <ChessDV/>
     </div>
   );
 }
