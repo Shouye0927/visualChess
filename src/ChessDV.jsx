@@ -2,22 +2,22 @@ import { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 
 // ==========================================
-// ⚙️ 核心設定：修改這裡即可更換棋手、兩個「局數範圍」
+// ⚙️ Core Configuration: Adjust player and game ranges here
 // ==========================================
-const TARGET_PLAYER = 'JackFoooo'; // 目標棋手用戶名 (不分大小寫)
+const TARGET_PLAYER = 'JackFoooo'; // Target player username (case-insensitive)
 
-// 棋盤 A 的局數範圍 [起始局數, 結束局數] (從 1 開始)
-const GAME_RANGE_A = [200, 230]; 
+// Board A Game Range [Start Game, End Game] (1-based index)
+const GAME_RANGE_A = [1, 100]; 
 
-// 棋盤 B 的局數範圍 [起始局數, 結束局數]
-const GAME_RANGE_B = [230, 240]; 
+// Board B Game Range [Start Game, End Game]
+const GAME_RANGE_B = [301, 400]; 
 
 const DATA_URL = 'https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/jackFoooo_Rapid.json';
 
 const FILES = ['a','b','c','d','e','f','g','h'];
 const RANKS = ['8','7','6','5','4','3','2','1'];
 
-// ── 座標轉換：'f7' → { col:5, row:1 } ──
+// ── Coordinate Conversion: 'f7' → { col:5, row:1 } ──
 function squareToIndex(sq) {
   if (!sq || sq.length < 2) return null;
   const file = sq.charCodeAt(0) - 97;
@@ -26,7 +26,7 @@ function squareToIndex(sq) {
   return { col: file, row: 7 - rank };
 }
 
-// ── 用棋盤狀態模擬追蹤棋子位置 ──
+// ── Initialize Board State to Track Piece Positions ──
 function getInitialBoard() {
   const board = Array.from({ length: 8 }, () => Array(8).fill(null));
   const backRank = ['R','N','B','Q','K','B','N','R'];
@@ -37,14 +37,14 @@ function getInitialBoard() {
   return board;
 }
 
-// ── 判斷主教吃子，回傳目標格 ──
+// ── Detect Bishop Captures, Returns Target Square ──
 function parseBishopCapture(notation) {
   const n = notation.replace(/[+#!?]/g, '');
   const match = n.match(/^B[a-h1-8]?x([a-h][1-8])$/);
   return match ? match[1] : null;
 }
 
-// ── 解析 notation 取得 from/to ──
+// ── Parse Notation to Get from/to Indexes ──
 function parseMove(notation, board, currentColor) {
   const n = notation.replace(/[+#!?=.]/g, '').trim();
   if (n === 'O-O' || n === 'O-O-O') return null;
@@ -90,13 +90,13 @@ function applyMove(board, moveInfo) {
   return newBoard;
 }
 
-// ── 核心過濾：只解析「特定局數範圍」內的主教獵車 ──
+// ── Core Filtering: Parse Bishop Captures Rook within specific Game Range ──
 function parseBishopCapturesForGameRange(sortedGames, colorFilter, startIdx, endIdx) {
   const board = Array.from({ length: 8 }, () =>
     Array.from({ length: 8 }, () => ({ total: 0, white: 0, black: 0, attacks: [] }))
   );
 
-  // 根據局數範圍 (Index 從 1 開始) 進行切片
+  // Slice games based on Game Index (1-based index)
   const targetGames = sortedGames.slice(startIdx - 1, endIdx);
 
   for (const game of targetGames) {
@@ -156,7 +156,7 @@ function parseBishopCapturesForGameRange(sortedGames, colorFilter, startIdx, end
 }
 
 // ══════════════════════════════════════════
-// 子元件：Elo 趨勢折線圖 (同步局數背景帶)
+// Subcomponent: Elo Trend Chart (Synchronized Game Range)
 // ══════════════════════════════════════════
 function EloTrendChart({ trendData }) {
   const svgRef = useRef(null);
@@ -173,7 +173,7 @@ function EloTrendChart({ trendData }) {
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // 1. 比例尺
+    // 1. Scales
     const xScale = d3.scaleLinear()
       .domain([1, trendData.length])
       .range([0, width]);
@@ -184,7 +184,7 @@ function EloTrendChart({ trendData }) {
       .domain([Math.max(0, yMin - 50), yMax + 50])
       .range([height, 0]);
 
-    // 2. 座標軸設定
+    // 2. Axes
     const totalGames = trendData.length;
     const tickValues = [1];
     for (let i = 50; i <= totalGames; i += 50) {
@@ -196,7 +196,7 @@ function EloTrendChart({ trendData }) {
 
     const xAxis = d3.axisBottom(xScale)
       .tickValues(tickValues)
-      .tickFormat(d => `第 ${d} 局`);
+      .tickFormat(d => `G ${d}`);
 
     const yAxis = d3.axisLeft(yScale).ticks(4);
 
@@ -214,8 +214,8 @@ function EloTrendChart({ trendData }) {
       .attr('font-family', 'Georgia, serif')
       .attr('color', '#5c4a32');
 
-    // 3. 🌟 繪製「局數區間」背景帶 (直接在 X 軸上標記 A 與 B 區間)
-    // 區間 A 背景 (黃褐色)
+    // 3. Highlighted Game Range Background Bands
+    // Range A Background (Tan)
     g.append('rect')
       .attr('x', xScale(GAME_RANGE_A[0]))
       .attr('width', xScale(GAME_RANGE_A[1]) - xScale(GAME_RANGE_A[0]))
@@ -224,7 +224,7 @@ function EloTrendChart({ trendData }) {
       .attr('fill', '#e8dcc8')
       .attr('opacity', 0.35);
 
-    // 區間 B 背景 (淡藍色)
+    // Range B Background (Light Blue)
     g.append('rect')
       .attr('x', xScale(GAME_RANGE_B[0]))
       .attr('width', xScale(GAME_RANGE_B[1]) - xScale(GAME_RANGE_B[0]))
@@ -233,7 +233,7 @@ function EloTrendChart({ trendData }) {
       .attr('fill', '#d0e0f0')
       .attr('opacity', 0.35);
 
-    // 4. 繪製折線
+    // 4. Line Generator & Path
     const line = d3.line()
       .x(d => xScale(d.gameIndex))
       .y(d => yScale(d.rating))
@@ -246,7 +246,7 @@ function EloTrendChart({ trendData }) {
       .attr('stroke-width', 2.5)
       .attr('d', line);
 
-    // 5. 繪製資料點：每 10 局標記一個圓點
+    // 5. Data Points: Mark a dot every 10 games
     const dottedData = trendData.filter(d => d.gameIndex % 10 === 0 || d.gameIndex === 1 || d.gameIndex === totalGames);
 
     g.selectAll('.dot')
@@ -260,16 +260,16 @@ function EloTrendChart({ trendData }) {
       .attr('stroke', '#fff')
       .attr('stroke-width', 1)
       .append('title')
-      .text(d => `局數: 第 ${d.gameIndex} 局\n日期: ${d3.timeFormat("%Y-%m-%d")(d.date)}\nElo: ${d.rating}`);
+      .text(d => `Game: No. ${d.gameIndex}\nDate: ${d3.timeFormat("%Y-%m-%d")(d.date)}\nElo: ${d.rating}`);
 
   }, [trendData]);
 
   return (
     <div style={{ background: '#fcfaf2', padding: '16px', borderRadius: 8, boxShadow: '0 4px 15px rgba(0,0,0,0.08)', marginBottom: '2rem' }}>
       <h3 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#2c1810', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>📈 Elo 實戰局數增長圖</span>
+        <span>📈 Elo Rating Trend by Game Count</span>
         <span style={{ fontSize: 12, fontWeight: 'normal', color: '#8b7355' }}>
-          黃色背景：區間 A (第 {GAME_RANGE_A[0]}-{GAME_RANGE_A[1]} 局) | 藍色背景：區間 B (第 {GAME_RANGE_B[0]}-{GAME_RANGE_B[1]} 局)
+          Tan Band: Range A (G {GAME_RANGE_A[0]}-{GAME_RANGE_A[1]}) | Blue Band: Range B (G {GAME_RANGE_B[0]}-{GAME_RANGE_B[1]})
         </span>
       </h3>
       <svg ref={svgRef} width="100%" height="180" viewBox="0 0 1036 180" style={{ display: 'block' }} />
@@ -278,7 +278,7 @@ function EloTrendChart({ trendData }) {
 }
 
 // ══════════════════════════════════════════
-// 子元件：單個棋盤繪製 (D3 封裝)
+// Subcomponent: Interactive Chessboard
 // ══════════════════════════════════════════
 function ChessBoard({ boardData, maxVal, onHover, onClick }) {
   const svgRef = useRef(null);
@@ -358,7 +358,7 @@ function ChessBoard({ boardData, maxVal, onHover, onClick }) {
 }
 
 // ══════════════════════════════════════════
-// 子元件：詳細獵車來源圖 (Modal)
+// Subcomponent: Attack Path Detail (Modal)
 // ══════════════════════════════════════════
 function AttackDetailChart({ cellData, onClose }) {
   const detailRef = useRef(null);
@@ -443,8 +443,8 @@ function AttackDetailChart({ cellData, onClose }) {
       <div style={{ background: '#f5f0e8', borderRadius: 12, padding: '24px 28px', boxShadow: '0 8px 40px rgba(0,0,0,0.4)', fontFamily: 'Georgia, serif', maxWidth: 520, width: '95vw' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
-            <h2 style={{ fontSize: 18, color: '#2c1810', margin: 0 }}>格子 {FILES[cellData.col]}{RANKS[cellData.row]} 的獵車路徑</h2>
-            <p style={{ fontSize: 12, color: '#8b7355', margin: '4px 0 0' }}>主教在此格吃車 <strong>{cellData.total}</strong> 次 (白: {cellData.white} / 黑: {cellData.black})</p>
+            <h2 style={{ fontSize: 18, color: '#2c1810', margin: 0 }}>Attack Paths for Square {FILES[cellData.col]}{RANKS[cellData.row]}</h2>
+            <p style={{ fontSize: 12, color: '#8b7355', margin: '4px 0 0' }}>Bishop captured Rook on this square <strong>{cellData.total}</strong> times (White: {cellData.white} / Black: {cellData.black})</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#8b7355' }}>✕</button>
         </div>
@@ -455,7 +455,7 @@ function AttackDetailChart({ cellData, onClose }) {
 }
 
 // ══════════════════════════════════════════
-// 主元件
+// Main Component
 // ══════════════════════════════════════════
 export function ChessDV() {
   const [games, setGames] = useState(null);
@@ -466,10 +466,10 @@ export function ChessDV() {
   const [ttPos, setTtPos] = useState({ x: 0, y: 0 });
   const [selected, setSelected] = useState(null);
 
-  // 統一處理並排序好的趨勢資料
+  // Sorted and cleaned trend data
   const [trendData, setTrendData] = useState([]);
 
-  // 雙棋盤資料狀態
+  // Double board states
   const [rangeAData, setRangeAData] = useState([]);
   const [rangeBData, setRangeBData] = useState([]);
   const [rangeAGamesCount, setRangeAGamesCount] = useState(0);
@@ -485,7 +485,7 @@ export function ChessDV() {
   useEffect(() => {
     if (!games) return;
 
-    // 1. 預先清洗並排序所有戰局，建立乾淨的局數時間線
+    // 1. Clean and sort games chronologically to build a reliable timeline
     const sorted = games
       .map(g => {
         const meta = g.metadata;
@@ -496,11 +496,11 @@ export function ChessDV() {
         const date = d3.timeParse("%Y.%m.%d")(dateStr) || new Date();
         return { ...g, date, rating };
       })
-      // 排除異常值並排序
+      // Filter out invalid records and extreme outliers (Elo < 300)
       .filter(d => d !== null && !isNaN(d.rating) && d.rating >= 300)
       .sort((a, b) => a.date - b.date);
 
-    // 建立用於折線圖的資料
+    // Build trend dataset
     const trend = sorted.map((d, i) => ({
       gameIndex: i + 1,
       rating: d.rating,
@@ -508,7 +508,7 @@ export function ChessDV() {
     }));
     setTrendData(trend);
 
-    // 2. 根據「局數範圍」解析雙棋盤
+    // 2. Parse bishop captures for both game ranges
     const resultA = parseBishopCapturesForGameRange(sorted, color, GAME_RANGE_A[0], GAME_RANGE_A[1]);
     setRangeAData(resultA.flatData);
     setRangeAGamesCount(resultA.gameCount);
@@ -545,66 +545,70 @@ export function ChessDV() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <h1 style={{ fontSize: 26, color: '#2c1810', marginBottom: 4 }}>
-          {TARGET_PLAYER} 的主教獵車（Rook）與局數區間對比
+          {TARGET_PLAYER}'s Bishop Captures Rook: Game Range Comparison
         </h1>
         <hr style={{ borderColor: '#c8b89a', marginBottom: 14 }} />
 
         <div style={{ color: '#5c4a32', fontSize: 13, marginBottom: 16, lineHeight: 1.9 }}>
-          <p>🎯 棋盤僅統計 <strong>{TARGET_PLAYER}</strong> 的<strong>主教吃掉對方城堡（車）</strong>的歷史紀錄。</p>
-          <p>📐 兩個棋盤使用相同的十字大小比例尺，方便直觀對比不同「局數區間」的戰術表現。</p>
-          <p>🖱️ <strong>滑鼠懸停</strong>查看數量　<strong>點擊格子</strong>查看主教從哪裡發動狙擊</p>
+          <p>🎯 Heatmaps only track games where <strong>{TARGET_PLAYER}</strong>'s <strong>Bishop captured the opponent's Rook</strong>.</p>
+          <p>📐 Both boards share the same cross-size scale for direct visual comparison between different game ranges.</p>
+          <p>🖱️ <strong>Hover</strong> over a square to see stats. <strong>Click</strong> a square to reveal the sniping paths.</p>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={{ fontSize: 13, color: '#5c4a32', marginRight: 8 }}>主教顏色：</span>
-          {[['all','全部'], ['white','白方主教 ♗'], ['black','黑方主教 ♝']].map(([v, l]) => (
+          <span style={{ fontSize: 13, color: '#5c4a32', marginRight: 8 }}>Bishop Color:</span>
+          {[
+            ['all', 'All'], 
+            ['white', 'White Bishop ♗'], 
+            ['black', 'Black Bishop ♝']
+          ].map(([v, l]) => (
             <button key={v} style={btnStyle(color === v)} onClick={() => setColor(v)}>{l}</button>
           ))}
         </div>
 
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', height: 200, fontSize: 18, color: '#5c4a32' }}>
-            正在載入 Chess.com 戰局資料並模擬棋盤狀態...
+            Loading Chess.com games and simulating board states...
           </div>
         )}
 
         {error && (
           <div style={{ color: '#c0392b', padding: 16, background: '#fdecea', borderRadius: 8 }}>
-            ❌ 載入失敗：{error}
+            ❌ Load Failed: {error}
           </div>
         )}
 
         {!loading && !error && (
           <>
-            {/* 📈 局數橫軸 Elo 折線圖 (背景帶會自動同步 A 與 B 的局數範圍) */}
+            {/* 📈 Elo Trend Chart */}
             <EloTrendChart trendData={trendData} />
 
-            {/* 雙棋盤並列 */}
+            {/* Double Board Layout */}
             <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
               
-              {/* 左棋盤：局數範圍 A */}
+              {/* Board A: Game Range A */}
               <div style={{ flex: '1 1 450px', minWidth: 350, textAlign: 'center' }}>
                 <div style={{ marginBottom: 12, padding: '10px', background: '#e8dcc8', borderRadius: 8 }}>
                   <h3 style={{ margin: '0 0 4px 0', color: '#2c1810' }}>
-                    區間 A (第 {GAME_RANGE_A[0]} - {GAME_RANGE_A[1]} 局)
+                    Range A (G {GAME_RANGE_A[0]} - {GAME_RANGE_A[1]})
                   </h3>
                   <div style={{ fontSize: 12, color: '#5c4a32', display: 'flex', justifyContent: 'space-around' }}>
-                    <span>分析局數：<strong>{rangeAGamesCount}</strong> 局</span>
-                    <span>成功獵車：<strong style={{ color: '#8b1a1a' }}>{totalCapturesA}</strong> 次</span>
+                    <span>Analyzed: <strong>{rangeAGamesCount}</strong> games</span>
+                    <span>Captures: <strong style={{ color: '#8b1a1a' }}>{totalCapturesA}</strong> times</span>
                   </div>
                 </div>
                 <ChessBoard boardData={rangeAData} maxVal={maxVal} onHover={handleHover} onClick={setSelected} />
               </div>
 
-              {/* 右棋盤：局數範圍 B */}
+              {/* Board B: Game Range B */}
               <div style={{ flex: '1 1 450px', minWidth: 350, textAlign: 'center' }}>
                 <div style={{ marginBottom: 12, padding: '10px', background: '#d0e0f0', borderRadius: 8 }}>
                   <h3 style={{ margin: '0 0 4px 0', color: '#2c1810' }}>
-                    區間 B (第 {GAME_RANGE_B[0]} - {GAME_RANGE_B[1]} 局)
+                    Range B (G {GAME_RANGE_B[0]} - {GAME_RANGE_B[1]})
                   </h3>
                   <div style={{ fontSize: 12, color: '#5c4a32', display: 'flex', justifyContent: 'space-around' }}>
-                    <span>分析局數：<strong>{rangeBGamesCount}</strong> 局</span>
-                    <span>成功獵車：<strong style={{ color: '#8b1a1a' }}>{totalCapturesB}</strong> 次</span>
+                    <span>Analyzed: <strong>{rangeBGamesCount}</strong> games</span>
+                    <span>Captures: <strong style={{ color: '#8b1a1a' }}>{totalCapturesB}</strong> times</span>
                   </div>
                 </div>
                 <ChessBoard boardData={rangeBData} maxVal={maxVal} onHover={handleHover} onClick={setSelected} />
@@ -615,6 +619,7 @@ export function ChessDV() {
         )}
       </div>
 
+      {/* Hover Tooltip */}
       {hovered && hovered.total > 0 && (
         <div style={{
           position: 'fixed', left: ttPos.x, top: ttPos.y,
@@ -625,19 +630,20 @@ export function ChessDV() {
           minWidth: 160,
         }}>
           <div style={{ fontWeight: 'bold', marginBottom: 5, color: '#f5d78e', fontSize: 14 }}>
-            格子 {FILES[hovered.col]}{RANKS[hovered.row]}
+            Square {FILES[hovered.col]}{RANKS[hovered.row]}
           </div>
           <div style={{ marginBottom: 4 }}>
-            主教吃車：<strong style={{ color: '#f5d78e' }}>{hovered.total}</strong> 次
+            Captures: <strong style={{ color: '#f5d78e' }}>{hovered.total}</strong> times
           </div>
           <hr style={{ borderColor: '#5c4a32', margin: '5px 0' }} />
           <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.8 }}>
-            ♗ 白方：{hovered.white} 次<br />
-            ♝ 黑方：{hovered.black} 次
+            ♗ White: {hovered.white} times<br />
+            ♝ Black: {hovered.black} times
           </div>
         </div>
       )}
 
+      {/* Sniping Path Modal */}
       <AttackDetailChart cellData={selected} onClose={() => setSelected(null)} />
     </div>
   );
