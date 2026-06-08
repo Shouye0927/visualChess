@@ -1,12 +1,25 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import * as d3 from "d3";
 
-export function TimeSquare({ processedMoves }) {
+export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
   const svgRef = useRef(null);
-  const simulationRef = useRef(null); // 用來儲存物理模擬器實例，跨 render 存取
+  const simulationRef = useRef(null);
 
-  //  controlar 當前播放到第幾步 (0 代表純棋盤狀態)
-  const [currentPly, setCurrentPly] = useState(0);
+  // 💡 解決 D3 閉包陷阱的核心：使用 Ref 來動態儲存最新的狀態與方法
+  const stateRef = useRef({ currentPly, setCurrentPly, processedMoves });
+
+  // 每次渲染時，都把最新收到的 props 同步更新到 Ref 裡面
+  useEffect(() => {
+    stateRef.current = { currentPly, setCurrentPly, processedMoves };
+  });
+
+  // 彈出歷程選單的狀態
+  const [menuConfig, setMenuConfig] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    history: [],
+  });
 
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -24,7 +37,6 @@ export function TimeSquare({ processedMoves }) {
       }),
     );
 
-    // 只統計到目前 currentPly 為止的棋步
     for (let i = 0; i < currentPly; i++) {
       const move = processedMoves[i];
       if (move && move.square && data[move.square] !== undefined) {
@@ -34,7 +46,7 @@ export function TimeSquare({ processedMoves }) {
     return data;
   }, [processedMoves, currentPly]);
 
-  // 計算整場比賽的最大時間（作為固定的比例尺最高點，避免每步的最高點不同導致縮放混亂）
+  // 計算全域最大時間
   const globalMaxTime = useMemo(() => {
     const totalData = {};
     processedMoves.forEach((move) => {
@@ -44,17 +56,16 @@ export function TimeSquare({ processedMoves }) {
     return d3.max(Object.values(totalData)) || 1;
   }, [processedMoves]);
 
-  // 2. 初始化棋盤的 DOM 結構（只執行一次，避免畫面閃爍）
+  // 2. 初始化 D3 棋盤 (只在元件 Mount 時執行一次，點擊事件透過 Ref 讀取最新狀態)
   useEffect(() => {
     if (!svgRef.current) return;
 
     const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove(); // 清空舊的
+    svg.selectAll("*").remove();
 
     const cellGroup = svg.append("g").attr("class", "cells");
-
-    // 建立 64 個格子的初始靜態 Node 資料
     const initialNodes = [];
+
     files.forEach((f) => {
       ranks.forEach((r) => {
         const key = `${f}${r}`;
@@ -69,24 +80,23 @@ export function TimeSquare({ processedMoves }) {
           rank: r,
           x: targetX,
           y: targetY,
-          targetX: targetX,
-          targetY: targetY,
-          size: squareSize, // 初始大小都是 30
+          targetX,
+          targetY,
+          size: squareSize,
           totalTime: 0,
         });
       });
     });
 
-    // 繪製 64 個 g 元素
     const cells = cellGroup
       .selectAll(".chess-cell")
       .data(initialNodes, (d) => d.id)
       .enter()
       .append("g")
       .attr("class", "chess-cell")
-      .attr("transform", (d) => `translate(${d.x}, ${d.y})`);
+      .attr("transform", (d) => `translate(${d.x}, ${d.y})`)
+      .style("cursor", "pointer");
 
-    // 畫方形
     cells
       .append("rect")
       .attr("width", (d) => d.size)
@@ -101,7 +111,6 @@ export function TimeSquare({ processedMoves }) {
       .attr("stroke", "#cbd5e1")
       .attr("stroke-width", 0.5);
 
-    // 畫文字
     cells
       .append("text")
       .attr("text-anchor", "middle")
@@ -117,7 +126,46 @@ export function TimeSquare({ processedMoves }) {
 
     cells.append("title");
 
-    // 初始化物理模擬器，並存入 Ref 中
+    // ✨ D3 點擊格子事件
+    cells.on("click", function (event, d) {
+      event.stopPropagation(); // 阻止冒泡
+
+      // 💡 從 stateRef 獲取最新、不被 D3 初始閉包綁架的最新棋譜資料
+      const { processedMoves: currentMoves } = stateRef.current;
+
+      const history = [];
+      currentMoves.forEach((move, index) => {
+        if (move.square === d.id) {
+          history.push({
+            plyIndex: index + 1,
+            notation: move.notation,
+            color: move.color === "white" ? "白方" : "黑方",
+            timeSpent: move.timeSpent,
+          });
+        }
+      });
+
+      if (history.length === 0) return;
+
+      if (history.length === 1) {
+        // ✨ 單次停留：直接呼叫 props 方法連動變更 App 層狀態，推動右側棋盤
+        setCurrentPly(history[0].plyIndex);
+        setMenuConfig((prev) => ({ ...prev, visible: false }));
+      } else {
+        // 多次停留：計算點擊相對於容器的位置彈出選單
+        const rect = svgRef.current.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        setMenuConfig({
+          visible: true,
+          x: x,
+          y: y,
+          history: history,
+        });
+      }
+    });
+
     simulationRef.current = d3
       .forceSimulation(initialNodes)
       .force("x", d3.forceX((d) => d.targetX).strength(0.75))
@@ -131,7 +179,6 @@ export function TimeSquare({ processedMoves }) {
       )
       .velocityDecay(0.35);
 
-    // 物理引擎計算時更新 DOM 位置
     simulationRef.current.on("tick", () => {
       svg
         .selectAll(".chess-cell")
@@ -141,9 +188,9 @@ export function TimeSquare({ processedMoves }) {
     return () => {
       if (simulationRef.current) simulationRef.current.stop();
     };
-  }, []); // 💡 空陣列：只在組件 mount 時執行一次
+  }, []); // 💡 保持空陣列：只在 Mount 時綁定一次監聽器
 
-  // 3. 當 currentSquareData 改變時（按下上一步/下一步），動態調整大小並重啟物理引擎
+  // 3. 當 currentSquareData (或 currentPly) 改變時，更新 D3 節點外觀大小
   useEffect(() => {
     if (!simulationRef.current) return;
 
@@ -151,24 +198,20 @@ export function TimeSquare({ processedMoves }) {
       .scaleLinear()
       .domain([0, globalMaxTime])
       .range([squareSize, 110]);
-
-    // 取得當前的物理 Nodes 資料
     const currentNodes = simulationRef.current.nodes();
 
-    // 更新每個 Node 的目標大小與時間
     currentNodes.forEach((node) => {
       node.totalTime = currentSquareData[node.id] || 0;
       node.size = sizeScale(node.totalTime);
     });
 
-    // 核心：使用 D3 Transition 讓方塊外觀「平滑變大/變小」
     const svg = d3.select(svgRef.current);
     const cells = svg.selectAll(".chess-cell").data(currentNodes, (d) => d.id);
 
     cells
       .select("rect")
       .transition()
-      .duration(300) // 300毫秒的平滑變形
+      .duration(300)
       .attr("width", (d) => d.size)
       .attr("height", (d) => d.size)
       .attr("x", (d) => -d.size / 2)
@@ -186,7 +229,6 @@ export function TimeSquare({ processedMoves }) {
       .select("title")
       .text((d) => `格子: ${d.id}\n總思考時間: ${d.totalTime} 秒`);
 
-    // 🔥 重新設定碰撞半徑（因為 size 變了），並叫醒物理引擎（Re-heat）
     simulationRef.current
       .force(
         "collision",
@@ -195,19 +237,25 @@ export function TimeSquare({ processedMoves }) {
           .radius((d) => d.size * 0.62)
           .iterations(4),
       )
-      .alpha(0.3) // 給予物理引擎一點能量
-      .restart(); // 開始推開！
+      .alpha(0.3)
+      .restart();
   }, [currentSquareData, globalMaxTime]);
 
-  // 4. 播放控制按鈕事件
+  // 點擊別處時關閉多步選單
+  useEffect(() => {
+    const closeMenu = () =>
+      setMenuConfig((prev) => ({ ...prev, visible: false }));
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
+
+  // 播放按鈕：直接調用傳進來的更新函式
   const handleNext = () => {
     if (currentPly < processedMoves.length) setCurrentPly((prev) => prev + 1);
   };
-
   const handlePrev = () => {
     if (currentPly > 0) setCurrentPly((prev) => prev - 1);
   };
-
   const handleReset = () => {
     setCurrentPly(0);
   };
@@ -219,9 +267,10 @@ export function TimeSquare({ processedMoves }) {
         flexDirection: "column",
         alignItems: "center",
         gap: "16px",
+        position: "relative",
       }}
     >
-      {/* 🎮 播放控制面板 */}
+      {/* 播放控制按鈕 */}
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
         <button onClick={handleReset} style={btnStyle}>
           ↩️ 重設
@@ -255,11 +304,12 @@ export function TimeSquare({ processedMoves }) {
         </button>
       </div>
 
-      {/* 顯示當前這一步的棋譜資訊 */}
       {currentPly > 0 && processedMoves[currentPly - 1] && (
         <div style={{ color: "#ea580c", fontWeight: "bold", fontSize: "14px" }}>
           當前動態：
-          {processedMoves[currentPly - 1].color === "white" ? "白方" : "黑方"}{" "}
+          {processedMoves[currentPly - 1].color === "white"
+            ? "白方"
+            : "黑方"}{" "}
           走{" "}
           <span
             style={{
@@ -274,28 +324,89 @@ export function TimeSquare({ processedMoves }) {
         </div>
       )}
 
-      {/* 棋盤畫布 */}
+      {/* 棋盤畫布外殼 */}
       <div
         style={{
           background: "#1e293b",
           padding: "20px",
           borderRadius: "16px",
           boxShadow: "0 10px 25px -5px rgba(0,0,0,0.3)",
+          position: "relative",
         }}
       >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${width} ${height}`}
-          width="100%"
-          height="100%"
-          style={{ maxWidth: `${width}px` }}
+          width="500px"
+          height="500px"
         />
+
+        {/* 多步棋跳轉選單 */}
+        {menuConfig.visible && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              top: menuConfig.y,
+              left: menuConfig.x,
+              background: "#1e293b",
+              border: "1px solid #475569",
+              borderRadius: "8px",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)",
+              zIndex: 100,
+              maxHeight: "180px",
+              overflowY: "auto",
+              padding: "6px",
+              minWidth: "180px",
+            }}
+          >
+            <div
+              style={{
+                color: "#94a3b8",
+                fontSize: "11px",
+                padding: "4px 8px",
+                borderBottom: "1px solid #334155",
+              }}
+            >
+              多步停留，請選擇：
+            </div>
+            {menuConfig.history.map((item) => (
+              <div
+                key={item.plyIndex}
+                onClick={() => {
+                  // 💡 ✨ 點擊彈出選單中的某一步時，直接呼叫 Props 傳下來的核心方法更新步數
+                  setCurrentPly(item.plyIndex);
+                  setMenuConfig((prev) => ({ ...prev, visible: false }));
+                }}
+                style={{
+                  padding: "6px 10px",
+                  color: "#f8fafc",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  transition: "background 0.2s",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "#334155")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <span>
+                  第 {item.plyIndex} 步 ({item.notation})
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// 簡單的按鈕樣式
 const btnStyle = {
   background: "#334155",
   color: "#f8fafc",
@@ -304,5 +415,4 @@ const btnStyle = {
   borderRadius: "8px",
   cursor: "pointer",
   fontWeight: "600",
-  transition: "background 0.2s",
 };
