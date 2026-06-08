@@ -1,12 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { processChessMoves } from "./utils/parseChessData";
 import { TimeSquare } from "./component/TimeSquare";
+// 💡 1. 引入剛剛建立的棋盤檢視器組件
+import { ChessboardViewer } from "./component/ChessboardViewer";
 
 function App() {
   // 建立存放資料與載入狀態的 State
   const [gameData, setGameData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  //將步數狀態提升到 App 層，方便未來傳給「棋局畫面組件」
+  const [currentPly, setCurrentPly] = useState(0);
 
   // GitHub Raw Data 的雲端網址
   const DATA_URL =
@@ -36,6 +41,14 @@ function App() {
 
     fetchChessData();
   }, []);
+
+  //3. 核心修復：使用 useMemo 快取解析結果
+  const processedMoves = useMemo(() => {
+    // 在 App.jsx 的 useMemo 後面暫時加入
+    // 確保有資料才進行解析
+    return gameData ? processChessMoves(gameData) : [];
+  }, [gameData]); // 只有當從雲端抓下來的 gameData 改變時，才重新解析
+  console.log("解析完成的 processedMoves:", processedMoves);
 
   // 1. 如果還在下載資料，顯示 Loading
   if (loading) {
@@ -68,15 +81,15 @@ function App() {
     );
   }
 
-  // 3. 資料載入成功，進行資料解析
-  const processedMoves = processChessMoves(gameData);
+  // 如果還沒有解析出結果，先不渲染主體
+  if (!processedMoves || processedMoves.length === 0) return null;
 
   return (
     <div
       style={{
         padding: "30px",
         fontFamily: "system-ui, sans-serif",
-        maxWidth: "800px",
+        maxWidth: "1000px", // 💡 因為放了兩個大組件，稍微調寬容器最大寬度
         margin: "0 auto",
       }}
     >
@@ -102,11 +115,52 @@ function App() {
         </p>
       </header>
 
-      <main
-        style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}
-      >
-        {/* 將非同步解析完的資料傳給 D3 棋盤 */}
-        <TimeSquare processedMoves={processedMoves} />
+      <main>
+        {/* 佈局：左右並排 */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-start",
+            gap: "40px",
+            flexWrap: "nowrap", // 強迫在寬螢幕下不換行
+          }}
+        >
+          {/* 左側：熱區圖 */}
+          <section style={{ flex: "0 0 auto" }}>
+            <h2
+              style={{
+                fontSize: "18px",
+                color: "#94a3b8",
+                marginBottom: "15px",
+              }}
+            >
+              思考時間熱區 (可點擊格子)
+            </h2>
+            <TimeSquare
+              processedMoves={processedMoves}
+              currentPly={currentPly}
+              setCurrentPly={setCurrentPly}
+            />
+          </section>
+
+          {/* 💡 2. 右側：實際即時棋盤 */}
+          <section style={{ flex: "0 0 auto" }}>
+            <h2
+              style={{
+                fontSize: "18px",
+                color: "#94a3b8",
+                marginBottom: "15px",
+              }}
+            >
+              當前棋局畫面
+            </h2>
+            <ChessboardViewer
+              processedMoves={processedMoves}
+              currentPly={currentPly}
+            />
+          </section>
+        </div>
       </main>
     </div>
   );
