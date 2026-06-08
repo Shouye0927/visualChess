@@ -1,51 +1,72 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Chessboard } from "react-chessboard";
-import { Chess } from "chess.js"; // 確保你有安裝 npm install chess.js react-chessboard
+import { Chess } from "chess.js";
 
-export function ChessboardViewer({ processedMoves, currentPly }) {
-  const [fen, setFen] = useState("start");
+// 西洋棋起手式的標準完整 FEN
+const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-  useEffect(() => {
-    // 1. 安全檢查：如果還沒抓到資料，回到初始狀態
+export function ChessBoardViewer({ processedMoves, currentPly }) {
+  const [fen, setFen] = useState(INITIAL_FEN);
+
+  // 💡 用 useMemo 計算 FEN，避免 useEffect 內 setFen 多一次 render
+  const computedFen = useMemo(() => {
+    // 沒資料就回到起手式
     if (!processedMoves || processedMoves.length === 0) {
-      setFen("start");
-      return;
+      return INITIAL_FEN;
     }
 
-    // 2. 宣告全新的西洋棋邏輯核心
+    // 建立全新棋局實例
     const game = new Chess();
 
-    // 3. 依序模擬走子，直到當前步數 currentPly
+    // 同步逐步走子
     for (let i = 0; i < currentPly; i++) {
       const move = processedMoves[i];
-      if (move && move.notation) {
-        try {
-          // 嘗試語法 A：直接傳入 SAN 字串 (如 'Nf3') -> 新版 chess.js 標準
-          game.move(move.notation);
-        } catch (error1) {
-          try {
-            // 嘗試語法 B：傳入物件 (部分舊版或特殊版本需求)
-            game.move({ move: move.notation, sloppy: true });
-          } catch (error2) {
-            // 如果都失敗，在 Console 印出到底是哪一步棋的 notation 格式有問題
-            console.error(
-              `第 ${i + 1} 步棋無法被解析。Notation: "${move.notation}"`,
-              error2,
-            );
-            break; // 中斷迴圈，避免後續棋步全部錯亂
-          }
+      if (!move || !move.notation) continue;
+
+      // ✨ 關鍵修正：清洗 notation（不要殺空白，只剝註解符號）
+      const cleanedNotation = move.notation
+        .replace(/0-0-0/g, "O-O-O") // 長易位修正（數字 0 → 字母 O）
+        .replace(/0-0/g, "O-O") // 短易位修正
+        .replace(/[!?]+/g, "") // 移除 !, ?, !!, ??, !?, ?! 等註解
+        .replace(/\{[^}]*\}/g, "") // 移除 PGN 註解 {...}
+        .replace(/\([^)]*\)/g, "") // 移除變化 (...)
+        .replace(/\$\d+/g, "") // 移除 NAG 標籤 $1, $2...
+        .trim(); // 只 trim 前後空白，內部不動
+
+      if (!cleanedNotation) continue;
+
+      try {
+        // 使用 strict: false 容錯模式
+        const result = game.move(cleanedNotation, { strict: false });
+        if (!result) {
+          console.warn(
+            `⚠️ 第 ${i + 1} 步無效: "${cleanedNotation}" (原始: "${move.notation}")`,
+          );
         }
+      } catch (error) {
+        console.error(
+          `❌ 第 ${i + 1} 步無法解析: 原始="${move.notation}" 清洗後="${cleanedNotation}"`,
+          error.message,
+        );
+        // 不 break，繼續嘗試下一步
       }
     }
 
-    // 4. 將最終盤面轉為 FEN 字串送給 UI 渲染
-    setFen(game.fen());
-  }, [processedMoves, currentPly]); // 💡 當 currentPly 改變，這裡一定會重新執行
+    // ✨ 取得完整的 FEN（chess.js 自動產生 6 欄位完整字串）
+    const finalFen = game.fen();
+    console.log("🎯 [computedFen] Ply:", currentPly, "FEN:", finalFen);
+    return finalFen;
+  }, [processedMoves, currentPly]);
+
+  // 把計算好的 FEN 寫進 state
+  useEffect(() => {
+    setFen(computedFen);
+  }, [computedFen]);
 
   return (
     <div
       style={{
-        width: "440px", // 棋盤外殼大小
+        width: "440px",
         background: "#1e293b",
         padding: "20px",
         borderRadius: "12px",
@@ -53,12 +74,13 @@ export function ChessboardViewer({ processedMoves, currentPly }) {
       }}
     >
       <Chessboard
+        id="MainChessBoard"
         position={fen}
-        arePiecesDraggable={false} // 唯讀關閉拖曳
+        arePiecesDraggable={false}
         boardWidth={400}
+        animationDuration={300}
         customDarkSquareStyle={{ backgroundColor: "#b58863" }}
         customLightSquareStyle={{ backgroundColor: "#f0d9b5" }}
-        animationDuration={200} // 移動動畫更流暢
       />
     </div>
   );
