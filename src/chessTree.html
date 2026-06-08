@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>Chess Tree</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .controls {
+            padding: 15px;
+            background: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        select {
+            padding: 5px;
+            font-size: 14px;
+        }
+        #main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        #tree-container {
+            flex: 3;
+            position: relative;
+            background-color: #ffffff;
+        }
+        #list-container {
+            flex: 1;
+            background-color: #ffffff;
+            border-left: 2px solid #ddd;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.05);
+        }
+        #game-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+            color: #333;
+        }
+        #game-list li:hover {
+            background-color: #f0f8ff;
+        }
+        
+        /* 節點與連線基礎設定 */
+        .node circle {
+            cursor: pointer;
+            transition: stroke-width 0.2s;
+        }
+        .node circle:hover {
+            stroke-width: 4px !important;
+        }
+        .node text {
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+        }
+        .link {
+            fill: none;
+            stroke: #888;
+            stroke-width: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <label for="side-filter">Side: </label>
+        <select id="side-filter">
+            <option value="all">All</option>
+            <option value="white">White</option>
+            <option value="black">Black</option>
+        </select>
+        <span id="game-count" style="font-weight: bold; color: #d32f2f; margin-left: 20px;">資料載入中...</span>
+    </div>
+
+    <div id="main-container">
+        <div id="tree-container"></div>
+        <div id="list-container">
+            <h3 style="margin-top: 0; color: #333;">Games</h3>
+            <!-- <p style="font-size: 12px; color: #666; margin-top: -10px;">(原始 JSON 陣列編號)</p> -->
+            <ul id="game-list" style="list-style-type: none; padding: 0; margin: 0;"></ul>
+        </div>
+    </div>
+
+    <script>
+        const jsonUrl = "https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/jackFoooo_Rapid.json"; 
+        
+        let allGames = [];
+        let filteredGames = [];
+        let rawTreeData = { name: "START", count: 0, path: [] };
+        
+        const svgContainer = d3.select("#tree-container").append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%");
+            
+        const zoomGroup = svgContainer.append("g");
+        
+        const zoom = d3.zoom()
+            .scaleExtent([0.2, 3])
+            .on("zoom", (event) => zoomGroup.attr("transform", event.transform));
+            
+        svgContainer.call(zoom);
+        svgContainer.call(zoom.transform, d3.zoomIdentity.translate(document.body.clientWidth * 0.35, 80));
+
+        const treeLayout = d3.tree().nodeSize([140, 180]); 
+        const diagonal = d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`;
+
+        const linkGroup = zoomGroup.append("g").attr("class", "links-layer");
+        const nodeGroup = zoomGroup.append("g").attr("class", "nodes-layer");
+
+        d3.json(jsonUrl).then(function(pgnData) {
+            allGames = pgnData.map((g, i) => { g.originalIndex = i; return g; });
+            d3.select("#side-filter").on("change", applyFilter);
+            applyFilter();
+        }).catch(err => console.error("read fail", err));
+
+        function applyFilter() {
+            const side = d3.select("#side-filter").property("value");
+            
+            if (side === "white") filteredGames = allGames.filter(g => g.metadata.White === "JackFoooo");
+            else if (side === "black") filteredGames = allGames.filter(g => g.metadata.Black === "JackFoooo");
+            else filteredGames = [...allGames]; 
+            
+            // 重置樹，並給予 START 節點當前的總局數
+            rawTreeData = { name: "START", count: filteredGames.length, path: [] };
+            toggleNode({ data: rawTreeData });
+        }
+
+        function toggleNode(d) {
+            const rawData = d.data;
+            
+            if (rawData.children) { 
+                rawData._children = rawData.children;
+                rawData.children = null;
+            } else if (rawData._children) { 
+                rawData.children = rawData._children;
+                rawData._children = null;
+            } else { 
+                const path = rawData.path; 
+                const currentPly = path.length;
+                
+                const matching = filteredGames.filter(g => {
+                    for(let i=0; i<currentPly; i++) {
+                        if(!g.moves[i] || g.moves[i].notation !== path[i]) return false;
+                    }
+                    return true;
+                });
+                
+                const counts = {};
+                matching.forEach(g => {
+                    if(g.moves.length > currentPly) {
+                        const n = g.moves[currentPly].notation;
+                        counts[n] = (counts[n] || 0) + 1;
+                    }
+                });
+                
+                const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 3);
+                    
+                if (sorted.length > 0) {
+                    rawData.children = sorted.map(m => ({
+                        name: m[0],         // 走法 (例如 d4)
+                        count: m[1],        // 局數 (例如 261)
+                        path: [...path, m[0]]
+                    }));
+                }
+            }
+            
+            updateTree();
+            updateList(rawData.path);
+        }
+
+        // node color
+        function getNodeFill(depth) {
+            if (depth === 0) return "#eeeeee";
+            return depth % 2 !== 0 ? "#ffffff" : "#000000";
+        }
+
+        // text color
+        function getTextColor(depth) {
+            if (depth === 0) return "#333333";
+            return depth % 2 !== 0 ? "#000000" : "#ffffff";
+        }
+
+        function updateTree() {
+            const root = d3.hierarchy(rawTreeData);
+            const treeData = treeLayout(root);
+            const nodes = treeData.descendants();
+            const links = treeData.links();
+            
+            // area
+            const maxGames = Math.max(1, filteredGames.length);
+            const rScale = d3.scaleSqrt()
+                             .domain([0, maxGames])
+                             .range([25, 60]);
+            
+            const node = nodeGroup.selectAll('g.node')
+                .data(nodes, d => d.data.path.join('-') || 'root');
+                
+            // === Enter ===
+            const nodeEnter = node.enter().append('g')
+                .attr('class', 'node')
+                .attr('transform', d => {
+                    const p = d.parent || root; 
+                    return `translate(${p.x},${p.y})`; // 直向排版使用 X, Y
+                })
+                .on('click', (event, d) => toggleNode(d));
+                
+            nodeEnter.append('circle')
+                .attr('r', 1e-6)
+                .style('stroke', '#666')
+                .style('stroke-width', '1px');
+                
+            // notation
+            nodeEnter.append('text')
+                .attr('class', 'move-name')
+                .attr('text-anchor', 'middle')
+                .attr('dy', '-0.2em')
+                .style('fill-opacity', 1e-6);
+
+            // number
+            nodeEnter.append('text')
+                .attr('class', 'move-count')
+                .attr('text-anchor', 'middle')
+                .attr('dy', '1.2em')
+                .style('font-size', '12px')
+                .style('fill-opacity', 1e-6);
+                
+            // === Update ===
+            const nodeUpdate = nodeEnter.merge(node);
+            
+            nodeUpdate.transition()
+                .duration(500)
+                .attr('transform', d => `translate(${d.x},${d.y})`);
+                
+            nodeUpdate.select('circle')
+                .transition()
+                .duration(500)
+                .attr('r', d => rScale(d.data.count))
+                .style('fill', d => getNodeFill(d.depth));
+                
+            nodeUpdate.select('.move-name')
+                .transition().duration(500)
+                .style('fill-opacity', 1)
+                .text(d => d.data.name)
+                .style('fill', d => getTextColor(d.depth));
+
+            nodeUpdate.select('.move-count')
+                .transition().duration(500)
+                .style('fill-opacity', 1)
+                .text(d => d.data.count ? `(${d.data.count})` : "")
+                .style('fill', d => getTextColor(d.depth));
+                
+            // === Exit ===
+            const nodeExit = node.exit().transition()
+                .duration(500)
+                .attr('transform', d => {
+                    const p = d.parent || root;
+                    return `translate(${p.x},${p.y})`;
+                })
+                .remove();
+                
+            nodeExit.select('circle').attr('r', 1e-6);
+            nodeExit.selectAll('text').style('fill-opacity', 1e-6);
+            
+            // === Links ===
+            const link = linkGroup.selectAll('path.link')
+                .data(links, d => d.target.data.path.join('-'));
+                
+            const linkEnter = link.enter().insert('path', 'g')
+                .attr('class', 'link')
+                .attr('d', d => {
+                    const o = {x: d.source.x, y: d.source.y};
+                    return diagonal({source: o, target: o});
+                });
+                
+            const linkUpdate = linkEnter.merge(link);
+            linkUpdate.transition().duration(500).attr('d', diagonal);
+                
+            link.exit().transition().duration(500)
+                .attr('d', d => {
+                    const o = {x: d.source.x, y: d.source.y};
+                    return diagonal({source: o, target: o});
+                }).remove();
+        }
+
+        function updateList(path) {
+            const currentPly = path.length;
+            const matching = filteredGames.filter(g => {
+                for(let i=0; i<currentPly; i++) {
+                    if(!g.moves[i] || g.moves[i].notation !== path[i]) return false;
+                }
+                return true;
+            });
+            
+            d3.select("#game-count").text(`${matching.length} games`);
+            
+            const ul = d3.select("#game-list");
+            ul.html(""); 
+            
+            if (matching.length === 0) {
+                ul.append("li").text("None").style("color", "#999");
+                return;
+            }
+
+            matching.forEach(g => {
+                ul.append("li").text(`#${g.originalIndex}`);
+            });
+        }
+    </script>
+</body>
+</html>
