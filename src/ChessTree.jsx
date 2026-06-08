@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as d3 from "d3";
 
 export function ChessTree() {
-  // --- React State 狀態管理 ---
+  // --- React State ---
   const [allGames, setAllGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [side, setSide] = useState("all");
@@ -11,7 +11,6 @@ export function ChessTree() {
   // --- Refs ---
   const svgRef = useRef(null);
 
-  // 1. 取得遠端資料 (Component Mount 時執行一次)
   useEffect(() => {
     const jsonUrl =
       "https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/jackFoooo_Rapid.json";
@@ -19,7 +18,6 @@ export function ChessTree() {
     fetch(jsonUrl)
       .then((res) => res.json())
       .then((data) => {
-        // 將原本的陣列 index 記錄下來，方便對應
         setAllGames(data.map((g, i) => ({ ...g, originalIndex: i })));
         setLoading(false);
       })
@@ -29,11 +27,9 @@ export function ChessTree() {
       });
   }, []);
 
-  // 2. 初始化與更新 D3 圖表 (當資料載入完成或切換 Side 時觸發)
   useEffect(() => {
     if (loading || allGames.length === 0 || !svgRef.current) return;
 
-    // 根據選擇過濾對局資料
     let filteredGames = [];
     if (side === "white") {
       filteredGames = allGames.filter((g) => g.metadata.White === "JackFoooo");
@@ -43,14 +39,11 @@ export function ChessTree() {
       filteredGames = [...allGames];
     }
 
-    // 樹狀圖資料的根節點
     let rawTreeData = { name: "START", count: filteredGames.length, path: [] };
 
-    // 清空舊的 SVG 內容避免重複渲染
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    // 設定 Zoom 與容器
     const zoomGroup = svg.append("g");
     const zoom = d3
       .zoom()
@@ -59,22 +52,18 @@ export function ChessTree() {
 
     svg.call(zoom);
 
-    // 取得容器寬度以置中顯示
     const containerWidth = svgRef.current.clientWidth || 800;
     svg.call(
       zoom.transform,
       d3.zoomIdentity.translate(containerWidth * 0.35, 80)
     );
 
-    // 設定樹狀圖佈局
     const treeLayout = d3.tree().nodeSize([140, 180]);
     const diagonal = (d) => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`;
 
-    // 分層：線條在下，節點在上
     const linkGroup = zoomGroup.append("g").attr("class", "links-layer");
     const nodeGroup = zoomGroup.append("g").attr("class", "nodes-layer");
 
-    // D3 繪圖的輔助函式
     function getNodeFill(depth) {
       if (depth === 0) return "#eeeeee";
       return depth % 2 !== 0 ? "#ffffff" : "#000000";
@@ -85,7 +74,6 @@ export function ChessTree() {
       return depth % 2 !== 0 ? "#000000" : "#ffffff";
     }
 
-    // 更新右側選單的 React State
     function updateList(path) {
       const currentPly = path.length;
       const matching = filteredGames.filter((g) => {
@@ -97,7 +85,6 @@ export function ChessTree() {
       setMatchingGames(matching);
     }
 
-    // 展開/收合節點的邏輯
     function toggleNode(d) {
       const rawData = d.data;
 
@@ -126,7 +113,6 @@ export function ChessTree() {
           }
         });
 
-        // 篩選出最多的前 3 種走法
         const sorted = Object.entries(counts)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 3);
@@ -144,7 +130,6 @@ export function ChessTree() {
       updateList(rawData.path);
     }
 
-    // 更新 D3 DOM 的主要函式
     function updateTree() {
       const root = d3.hierarchy(rawTreeData);
       const treeData = treeLayout(root);
@@ -263,7 +248,7 @@ export function ChessTree() {
         .remove();
     }
 
-    // 初始化模擬點擊根節點
+    // initialize
     toggleNode({ data: rawTreeData });
 
   }, [allGames, side, loading]);
