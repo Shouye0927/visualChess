@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as d3 from "d3";
 
-export default function OpeningTree() {
+export function ChessTree() {
   // --- React State ---
   const [allGames, setAllGames] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -259,6 +259,7 @@ export default function OpeningTree() {
       style={{
         display: "flex",
         flexDirection: "column",
+        width: "144vh",
         height: "100vh",
         backgroundColor: "#f0f0f0",
         fontFamily: "Arial, sans-serif",
