@@ -96,18 +96,15 @@ function ThoughtOfSquare() {
           paddingBottom: "15px",
         }}
       >
-        <h1 style={{ fontSize: "24px", margin: "0 0 8px 0" }}>
-          西洋棋對局思考時間熱區圖 (雲端資料版)
-        </h1>
-        <p style={{ color: "#4a5568", margin: "4px 0" }}>
-          ⚪ <strong>白方 (IM {gameData.metadata.White}):</strong>{" "}
+        <p style={{ color: "#ffffff", margin: "4px 0" }}>
+          <strong>White ( {gameData.metadata.White}):</strong>{" "}
           {gameData.metadata.WhiteElo}
-          <span style={{ margin: "0 10px" }}>vs</span>⚫{" "}
-          <strong>黑方 ({gameData.metadata.Black}):</strong>{" "}
+          <span style={{ margin: "0 10px" }}>vs</span>{" "}
+          <strong>Black ( {gameData.metadata.Black}):</strong>{" "}
           {gameData.metadata.BlackElo}
         </p>
         <p style={{ color: "#718096", fontSize: "14px", margin: "4px 0" }}>
-          開局：{gameData.metadata.Opening} ({gameData.metadata.ECO})
+          Opening：{gameData.metadata.Opening} ({gameData.metadata.ECO})
         </p>
       </header>
 
@@ -116,22 +113,13 @@ function ThoughtOfSquare() {
           style={{
             display: "flex",
             justifyContent: "center",
-            alignItems: "flex-start",
+            alignItems: "center", // 💡 這裡改成 "center"，讓左右兩邊垂直置中對齊
             gap: "40px",
             flexWrap: "nowrap",
           }}
         >
           {/* 左側：熱區圖 */}
           <section style={{ flex: "0 0 auto" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                color: "#94a3b8",
-                marginBottom: "15px",
-              }}
-            >
-              思考時間熱區 (可點擊格子)
-            </h2>
             <TimeSquare
               processedMoves={processedMoves}
               currentPly={currentPly}
@@ -141,22 +129,12 @@ function ThoughtOfSquare() {
 
           {/* 右側：即時棋盤 */}
           <section style={{ flex: "0 0 auto" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                color: "#94a3b8",
-                marginBottom: "15px",
-              }}
-            >
-              當前棋局畫面
-            </h2>
             <ChessBoardViewer
               processedMoves={processedMoves}
               currentPly={currentPly}
             />
           </section>
         </div>
-        {/* <ChessGame /> */}
       </main>
     </div>
   );
