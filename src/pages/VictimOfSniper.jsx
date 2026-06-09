@@ -613,7 +613,7 @@ export default function VictimOfSniper() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <h1 style={{ fontSize: 26, color: '#2c1810', marginBottom: 4 }}>
-          {TARGET_PLAYER}'s 's Rook Captured by Bishop: Game Range Comparison
+          Rooks Sniped by the Bishops
         </h1>
         <hr style={{ borderColor: '#c8b89a', marginBottom: 14 }} />
 
