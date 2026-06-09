@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as d3 from "d3";
 
+import { Chessboard } from "react-chessboard";
+import { Chess } from "chess.js";
+
 export default function OpeningTree() {
   // --- React State ---
   const [allGames, setAllGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [side, setSide] = useState("all");
   const [matchingGames, setMatchingGames] = useState([]);
+
+  const [boardFen, setBoardFen] = useState("start");
 
   // --- Refs ---
   const svgRef = useRef(null);
@@ -58,7 +63,7 @@ export default function OpeningTree() {
       d3.zoomIdentity.translate(containerWidth * 0.35, 80)
     );
 
-    const treeLayout = d3.tree().nodeSize([140, 180]);
+    const treeLayout = d3.tree().nodeSize([120, 150]);
     const diagonal = (d) => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`;
 
     const linkGroup = zoomGroup.append("g").attr("class", "links-layer");
@@ -74,7 +79,8 @@ export default function OpeningTree() {
       return depth % 2 !== 0 ? "#000000" : "#ffffff";
     }
 
-    function updateList(path) {
+    function updateBoardState(path) {
+      // 1. 計算符合該路徑的局數 (保留上方計數器功能)
       const currentPly = path.length;
       const matching = filteredGames.filter((g) => {
         for (let i = 0; i < currentPly; i++) {
@@ -83,6 +89,18 @@ export default function OpeningTree() {
         return true;
       });
       setMatchingGames(matching);
+
+      // 2. 利用 chess.js 模擬走法並產出 FEN
+      const game = new Chess();
+      for (let move of path) {
+        try {
+          game.move(move); // 依序套用路徑上的每一個走法
+        } catch (e) {
+          console.warn("無法解析的走法:", move);
+          break;
+        }
+      }
+      setBoardFen(game.fen()); // 更新 React State 來重新渲染棋盤
     }
 
     function toggleNode(d) {
@@ -127,7 +145,7 @@ export default function OpeningTree() {
       }
 
       updateTree();
-      updateList(rawData.path);
+      updateBoardState(rawData.path);
     }
 
     function updateTree() {
@@ -160,19 +178,13 @@ export default function OpeningTree() {
         .style("stroke", "#666")
         .style("stroke-width", "1px");
 
+      nodeEnter.append("title");
+
       nodeEnter
         .append("text")
         .attr("class", "move-name")
         .attr("text-anchor", "middle")
-        .attr("dy", "-0.2em")
-        .style("fill-opacity", 1e-6);
-
-      nodeEnter
-        .append("text")
-        .attr("class", "move-count")
-        .attr("text-anchor", "middle")
-        .attr("dy", "1.2em")
-        .style("font-size", "12px")
+        .attr("dy", "0.3em")
         .style("fill-opacity", 1e-6);
 
       // === Update ===
@@ -199,12 +211,8 @@ export default function OpeningTree() {
         .style("fill", (d) => getTextColor(d.depth));
 
       nodeUpdate
-        .select(".move-count")
-        .transition()
-        .duration(500)
-        .style("fill-opacity", 1)
-        .text((d) => (d.data.count ? `(${d.data.count})` : ""))
-        .style("fill", (d) => getTextColor(d.depth));
+        .select("title")
+        .text((d) => (d.data.count ? `${d.data.count} games` : ""));
 
       // === Exit ===
       const nodeExit = node
@@ -312,7 +320,7 @@ export default function OpeningTree() {
         <div
           style={{ flex: 3, position: "relative", backgroundColor: "#ffffff" }}
         >
-          {/* ✅ 正確：將 ref={svgRef} 綁定在 svg 標籤上 */}
+          {/* 將 ref={svgRef} 綁定在 svg 標籤上 */}
           <svg ref={svgRef} width="100%" height="100%"></svg>
         </div>
 
@@ -322,31 +330,19 @@ export default function OpeningTree() {
             flex: 1,
             backgroundColor: "#ffffff",
             borderLeft: "2px solid #ddd",
-            padding: "20px",
-            overflowY: "auto",
+            padding: "30px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
             boxShadow: "-2px 0 5px rgba(0,0,0,0.05)",
           }}
         >
-          <h3 style={{ marginTop: 0, color: "#333" }}>Games</h3>
-          <ul style={{ listStyleType: "none", padding: 0, margin: 0 }}>
-            {matchingGames.length === 0 ? (
-              <li style={{ color: "#999", padding: "10px 0" }}>None</li>
-            ) : (
-              matchingGames.map((g) => (
-                <li
-                  key={g.originalIndex}
-                  style={{
-                    padding: "10px 0",
-                    borderBottom: "1px solid #eee",
-                    fontSize: "14px",
-                    color: "#333",
-                  }}
-                >
-                  #{g.originalIndex}
-                </li>
-              ))
-            )}
-          </ul>
+          <h3 style={{ marginTop: 0, color: "#333", marginBottom: "20px" }}>Board</h3>
+          
+          <div style={{ width: "100%", maxWidth: "400px" }}>
+            {/* 使用 react-chessboard 元件，並傳入動態計算出的 boardFen */}
+            <Chessboard position={boardFen} />
+          </div>
         </div>
       </div>
     </div>
