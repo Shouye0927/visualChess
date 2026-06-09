@@ -21,6 +21,10 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
     history: [],
   });
 
+  // 模式開關狀態
+  const [isExplosionMode, setIsExplosionMode] = useState(false);
+  const [isSplitMode, setIsSplitMode] = useState(false);
+
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
   const squareSize = 30;
@@ -28,7 +32,47 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
   const width = squareSize * 8 + margin * 2;
   const height = squareSize * 8 + margin * 2;
 
-  // 1. 根據目前的步數，計算「當前累積」的格子時間
+  const IconPrev = () => (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="15 18 9 12 15 6"></polyline>
+    </svg>
+  );
+
+  const IconNext = () => (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  );
+
+  // 計算每個格子的目標座標 (Center X, Center Y)
+  const getPos = (square) => {
+    const fIdx = files.indexOf(square[0]);
+    const rIdx = ranks.indexOf(parseInt(square[1]));
+    return {
+      tx: margin + fIdx * squareSize + squareSize / 2,
+      ty: margin + rIdx * squareSize + squareSize / 2,
+    };
+  };
+
+  // 1. 根據目前的步數，計算「當前累積」的格子時間 (用於棋盤模式)
   const currentSquareData = useMemo(() => {
     const data = {};
     files.forEach((f) =>
@@ -36,7 +80,6 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
         data[`${f}${r}`] = 0;
       }),
     );
-
     for (let i = 0; i < currentPly; i++) {
       const move = processedMoves[i];
       if (move && move.square && data[move.square] !== undefined) {
@@ -46,7 +89,7 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
     return data;
   }, [processedMoves, currentPly]);
 
-  // 計算全域最大時間
+  // 計算全域最大時間 (用於比例尺)
   const globalMaxTime = useMemo(() => {
     const totalData = {};
     processedMoves.forEach((move) => {
@@ -56,192 +99,213 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
     return d3.max(Object.values(totalData)) || 1;
   }, [processedMoves]);
 
-  // 2. 初始化 D3 棋盤 (只在元件 Mount 時執行一次，點擊事件透過 Ref 讀取最新狀態)
+  // 2. ✨ 核心 D3 渲染與物理模擬 ✨
   useEffect(() => {
     if (!svgRef.current) return;
-
     const svg = d3.select(svgRef.current);
+
+    // 💡 關鍵修復：取得「上一幀」的物理節點狀態，把座標記錄下來
+    const oldNodes = simulationRef.current ? simulationRef.current.nodes() : [];
+    const oldNodeMap = new Map(oldNodes.map((n) => [n.id, n]));
+
+    // 清空舊畫布，準備重新繪製
     svg.selectAll("*").remove();
-
     const cellGroup = svg.append("g").attr("class", "cells");
-    const initialNodes = [];
 
-    files.forEach((f) => {
-      ranks.forEach((r) => {
-        const key = `${f}${r}`;
-        const fIdx = files.indexOf(f);
-        const rIdx = ranks.indexOf(r);
-        const targetX = margin + fIdx * squareSize + squareSize / 2;
-        const targetY = margin + rIdx * squareSize + squareSize / 2;
+    // 設定尺寸比例尺
+    const sizeScale = d3
+      .scaleLinear()
+      .domain([0, globalMaxTime])
+      .range([squareSize, 110]);
 
-        initialNodes.push({
-          id: key,
-          file: f,
-          rank: r,
-          x: targetX,
-          y: targetY,
-          targetX,
-          targetY,
-          size: squareSize,
-          totalTime: 0,
+    let nodes = [];
+
+    if (isSplitMode) {
+      // 🟢 分塊模式：將每一「步」轉為獨立節點
+      nodes = processedMoves
+        .slice(0, currentPly)
+        .filter((m) => m.square && files.includes(m.square[0]))
+        .map((m, i) => {
+          const id = `move-${i}`;
+          const pos = getPos(m.square);
+          const tTime = m.timeSpent || 0;
+
+          // 找找看這個步數是不是已經在畫面上了？
+          const oldNode = oldNodeMap.get(id);
+
+          return {
+            id,
+            square: m.square,
+            targetX: pos.tx,
+            targetY: pos.ty,
+            // 💡 如果已經存在，直接沿用它被炸開後的座標與速度！如果沒有，才給它初始座標
+            x: oldNode ? oldNode.x : pos.tx + (Math.random() - 0.5) * 20,
+            y: oldNode ? oldNode.y : pos.ty + (Math.random() - 0.5) * 20,
+            vx: oldNode ? oldNode.vx : 0,
+            vy: oldNode ? oldNode.vy : 0,
+            size: Math.max(20, sizeScale(tTime) * 0.6),
+            color: m.color,
+            notation: m.notation,
+            timeSpent: tTime,
+          };
+        });
+    } else {
+      // 🟡 棋盤模式：維持 64 格
+      files.forEach((f) => {
+        ranks.forEach((r) => {
+          const sq = `${f}${r}`;
+          const pos = getPos(sq);
+          const tTime = currentSquareData[sq] || 0;
+
+          const oldNode = oldNodeMap.get(sq);
+
+          nodes.push({
+            id: sq,
+            square: sq,
+            targetX: pos.tx,
+            targetY: pos.ty,
+            // 💡 棋盤模式同樣沿用舊座標，讓模式切換時方塊會平滑過渡
+            x: oldNode ? oldNode.x : pos.tx,
+            y: oldNode ? oldNode.y : pos.ty,
+            vx: oldNode ? oldNode.vx : 0,
+            vy: oldNode ? oldNode.vy : 0,
+            size: tTime > 0 ? sizeScale(tTime) : squareSize,
+            totalTime: tTime,
+          });
         });
       });
-    });
+    }
 
+    // 建立 D3 節點元素 (這行之後的程式碼維持不變，繼續接 cells 宣告...)
     const cells = cellGroup
       .selectAll(".chess-cell")
-      .data(initialNodes, (d) => d.id)
+      .data(nodes, (d) => d.id)
       .enter()
       .append("g")
       .attr("class", "chess-cell")
-      .attr("transform", (d) => `translate(${d.x}, ${d.y})`)
       .style("cursor", "pointer");
 
+    // 繪製方塊
     cells
       .append("rect")
       .attr("width", (d) => d.size)
       .attr("height", (d) => d.size)
       .attr("x", (d) => -d.size / 2)
       .attr("y", (d) => -d.size / 2)
-      .attr("fill", (d) =>
-        (files.indexOf(d.file) + ranks.indexOf(d.rank)) % 2 === 1
-          ? "#b58863"
-          : "#f0d9b5",
+      .attr("rx", isSplitMode ? 6 : 0)
+      .attr("fill", (d) => {
+        // 💡 同步顏色邏輯：無論何種模式，都依據棋盤格子的黑白來決定底色
+        const isDarkSquare =
+          (files.indexOf(d.square[0]) + ranks.indexOf(parseInt(d.square[1]))) %
+            2 ===
+          1;
+        return isDarkSquare ? "#b58863" : "#f0d9b5";
+      })
+      .attr("stroke", (d) =>
+        isSplitMode || d.totalTime > 0 ? "#ea580c" : "#cbd5e1",
       )
-      .attr("stroke", "#cbd5e1")
-      .attr("stroke-width", 0.5);
+      .attr("stroke-width", (d) =>
+        isSplitMode || d.totalTime > 0 ? 1.5 : 0.5,
+      );
 
+    // 繪製文字標籤
     cells
       .append("text")
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "central")
-      .attr("font-size", "9px")
+      .attr("font-size", (d) => (d.size < 40 ? "9px" : "12px"))
       .attr("font-weight", "600")
-      .attr("fill", (d) =>
-        (files.indexOf(d.file) + ranks.indexOf(d.rank)) % 2 === 1
-          ? "#f0d9b5"
-          : "#b58863",
-      )
-      .text((d) => d.id);
+      .attr("fill", (d) => {
+        // 💡 同步顏色邏輯：依據棋盤格子決定文字的對比色 (必須要 return！)
+        const isDarkSquare =
+          (files.indexOf(d.square[0]) + ranks.indexOf(parseInt(d.square[1]))) %
+            2 ===
+          1;
+        return isDarkSquare ? "#f0d9b5" : "#b58863";
+      })
+      .text((d) => (isSplitMode ? d.notation : d.id));
 
-    cells.append("title");
+    // Hover 提示
+    cells
+      .append("title")
+      .text((d) =>
+        isSplitMode
+          ? `Step: ${d.notation}\nTimeSpent: ${d.timeSpent} 秒\nSquare: ${d.square}`
+          : `Square: ${d.id}\nTotal Thinking Time: ${d.totalTime} 秒`,
+      );
 
-    // ✨ D3 點擊格子事件
+    // ✨ 點擊事件
     cells.on("click", function (event, d) {
-      event.stopPropagation(); // 阻止冒泡
-
-      // 💡 從 stateRef 獲取最新、不被 D3 初始閉包綁架的最新棋譜資料
+      event.stopPropagation();
       const { processedMoves: currentMoves } = stateRef.current;
-
       const history = [];
-      currentMoves.forEach((move, index) => {
-        if (move.square === d.id) {
-          history.push({
-            plyIndex: index + 1,
-            notation: move.notation,
-            color: move.color === "white" ? "白方" : "黑方",
-            timeSpent: move.timeSpent,
-          });
-        }
-      });
+
+      currentMoves
+        .slice(0, stateRef.current.currentPly)
+        .forEach((move, index) => {
+          if (move.square === d.square) {
+            history.push({
+              plyIndex: index + 1,
+              notation: move.notation,
+              color: move.color === "white" ? "White" : "Black",
+              timeSpent: move.timeSpent,
+            });
+          }
+        });
 
       if (history.length === 0) return;
 
       if (history.length === 1) {
-        // ✨ 單次停留：直接呼叫 props 方法連動變更 App 層狀態，推動右側棋盤
-        setCurrentPly(history[0].plyIndex);
+        stateRef.current.setCurrentPly(history[0].plyIndex);
         setMenuConfig((prev) => ({ ...prev, visible: false }));
       } else {
-        // 多次停留：計算點擊相對於容器的位置彈出選單
         const rect = svgRef.current.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-
         setMenuConfig({
           visible: true,
-          x: x,
-          y: y,
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
           history: history,
         });
       }
     });
 
+    // ✨ 啟動物理模擬
+    const attractStrength = isExplosionMode ? 0.05 : isSplitMode ? 0.3 : 0.75;
+    const repelStrength = isExplosionMode ? -50 : isSplitMode ? -15 : 0;
+
     simulationRef.current = d3
-      .forceSimulation(initialNodes)
-      .force("x", d3.forceX((d) => d.targetX).strength(0.75))
-      .force("y", d3.forceY((d) => d.targetY).strength(0.75))
+      .forceSimulation(nodes)
+      .force("x", d3.forceX((d) => d.targetX).strength(attractStrength))
+      .force("y", d3.forceY((d) => d.targetY).strength(attractStrength))
+      .force("charge", d3.forceManyBody().strength(repelStrength))
       .force(
         "collision",
         d3
           .forceCollide()
-          .radius((d) => d.size * 0.62)
+          .radius((d) => d.size / 2 + 2)
           .iterations(4),
       )
-      .velocityDecay(0.35);
+      .velocityDecay(isSplitMode ? 0.6 : 0.35);
 
+    // ✨ 邊界限制邏輯 (Bounding Box) 加入到 tick 函式中
+    const padding = 5; // 邊距緩衝
     simulationRef.current.on("tick", () => {
-      svg
-        .selectAll(".chess-cell")
-        .attr("transform", (d) => `translate(${d.x}, ${d.y})`);
+      cells.attr("transform", (d) => {
+        // 計算半徑，確保整個方塊都在畫布內
+        const r = d.size / 2;
+        // 強制限制 x 與 y 座標不能超過畫布邊界
+        d.x = Math.max(r + padding, Math.min(width - r - padding, d.x));
+        d.y = Math.max(r + padding, Math.min(height - r - padding, d.y));
+        return `translate(${d.x}, ${d.y})`;
+      });
     });
 
     return () => {
       if (simulationRef.current) simulationRef.current.stop();
     };
-  }, []); // 💡 保持空陣列：只在 Mount 時綁定一次監聽器
+  }, [currentPly, processedMoves, isExplosionMode, isSplitMode, globalMaxTime]);
 
-  // 3. 當 currentSquareData (或 currentPly) 改變時，更新 D3 節點外觀大小
-  useEffect(() => {
-    if (!simulationRef.current) return;
-
-    const sizeScale = d3
-      .scaleLinear()
-      .domain([0, globalMaxTime])
-      .range([squareSize, 110]);
-    const currentNodes = simulationRef.current.nodes();
-
-    currentNodes.forEach((node) => {
-      node.totalTime = currentSquareData[node.id] || 0;
-      node.size = sizeScale(node.totalTime);
-    });
-
-    const svg = d3.select(svgRef.current);
-    const cells = svg.selectAll(".chess-cell").data(currentNodes, (d) => d.id);
-
-    cells
-      .select("rect")
-      .transition()
-      .duration(300)
-      .attr("width", (d) => d.size)
-      .attr("height", (d) => d.size)
-      .attr("x", (d) => -d.size / 2)
-      .attr("y", (d) => -d.size / 2)
-      .attr("stroke", (d) => (d.totalTime > 0 ? "#ea580c" : "#cbd5e1"))
-      .attr("stroke-width", (d) => (d.totalTime > 0 ? 1.5 : 0.5));
-
-    cells
-      .select("text")
-      .transition()
-      .duration(300)
-      .attr("font-size", (d) => (d.size < 40 ? "9px" : "12px"));
-
-    cells
-      .select("title")
-      .text((d) => `格子: ${d.id}\n總思考時間: ${d.totalTime} 秒`);
-
-    simulationRef.current
-      .force(
-        "collision",
-        d3
-          .forceCollide()
-          .radius((d) => d.size * 0.62)
-          .iterations(4),
-      )
-      .alpha(0.3)
-      .restart();
-  }, [currentSquareData, globalMaxTime]);
-
-  // 點擊別處時關閉多步選單
+  // 點擊別處關閉多步選單
   useEffect(() => {
     const closeMenu = () =>
       setMenuConfig((prev) => ({ ...prev, visible: false }));
@@ -249,16 +313,13 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
-  // 播放按鈕：直接調用傳進來的更新函式
   const handleNext = () => {
     if (currentPly < processedMoves.length) setCurrentPly((prev) => prev + 1);
   };
   const handlePrev = () => {
     if (currentPly > 0) setCurrentPly((prev) => prev - 1);
   };
-  const handleReset = () => {
-    setCurrentPly(0);
-  };
+  const handleReset = () => setCurrentPly(0);
 
   return (
     <div
@@ -270,59 +331,48 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
         position: "relative",
       }}
     >
-      {/* 播放控制按鈕 */}
-      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-        <button onClick={handleReset} style={btnStyle}>
-          ↩️ 重設
-        </button>
-        <button
-          onClick={handlePrev}
-          disabled={currentPly === 0}
-          style={btnStyle}
-        >
-          ◀️ 上一步
-        </button>
-        <span
+      {/* 視覺切換開關 */}
+      <div
+        style={{
+          display: "flex",
+          gap: "20px",
+          alignItems: "center",
+          marginBottom: "4px",
+        }}
+      >
+        <label
           style={{
-            color: "#cbd5e1",
-            fontSize: "16px",
-            fontWeight: "600",
-            minWidth: "100px",
-            textAlign: "center",
+            color: "#94a3b8",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
           }}
         >
-          {currentPly === 0
-            ? "初始棋盤"
-            : `步數: ${currentPly} / ${processedMoves.length}`}
-        </span>
-        <button
-          onClick={handleNext}
-          disabled={currentPly === processedMoves.length}
-          style={btnStyle}
+          <input
+            type="checkbox"
+            checked={isExplosionMode}
+            onChange={() => setIsExplosionMode(!isExplosionMode)}
+          />
+          Explosion Mode
+        </label>
+        <label
+          style={{
+            color: "#94a3b8",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
         >
-          下一步 ▶️
-        </button>
+          <input
+            type="checkbox"
+            checked={isSplitMode}
+            onChange={() => setIsSplitMode(!isSplitMode)}
+          />
+          Split Mode
+        </label>
       </div>
-
-      {currentPly > 0 && processedMoves[currentPly - 1] && (
-        <div style={{ color: "#ea580c", fontWeight: "bold", fontSize: "14px" }}>
-          當前動態：
-          {processedMoves[currentPly - 1].color === "white"
-            ? "白方"
-            : "黑方"}{" "}
-          走{" "}
-          <span
-            style={{
-              background: "#475569",
-              padding: "2px 6px",
-              borderRadius: "4px",
-            }}
-          >
-            {processedMoves[currentPly - 1].notation}
-          </span>{" "}
-          (思考了 {processedMoves[currentPly - 1].timeSpent} 秒)
-        </div>
-      )}
 
       {/* 棋盤畫布外殼 */}
       <div
@@ -368,13 +418,12 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
                 borderBottom: "1px solid #334155",
               }}
             >
-              多步停留，請選擇：
+              Multiple moves found on {menuConfig.history[0].square}:
             </div>
             {menuConfig.history.map((item) => (
               <div
                 key={item.plyIndex}
                 onClick={() => {
-                  // 💡 ✨ 點擊彈出選單中的某一步時，直接呼叫 Props 傳下來的核心方法更新步數
                   setCurrentPly(item.plyIndex);
                   setMenuConfig((prev) => ({ ...prev, visible: false }));
                 }}
@@ -396,12 +445,46 @@ export function TimeSquare({ processedMoves, currentPly, setCurrentPly }) {
                 }
               >
                 <span>
-                  第 {item.plyIndex} 步 ({item.notation})
+                  Step {item.plyIndex} ({item.notation})
                 </span>
               </div>
             ))}
           </div>
         )}
+      </div>
+
+      {/* 播放控制按鈕 */}
+      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <button onClick={handleReset} style={btnStyle}>
+          Reset
+        </button>
+        <button
+          onClick={handlePrev}
+          disabled={currentPly === 0}
+          style={btnStyle}
+        >
+          <IconPrev />
+        </button>
+        <span
+          style={{
+            color: "#cbd5e1",
+            fontSize: "16px",
+            fontWeight: "600",
+            minWidth: "100px",
+            textAlign: "center",
+          }}
+        >
+          {currentPly === 0
+            ? "Start to explore!"
+            : `Step: ${currentPly} / ${processedMoves.length}`}
+        </span>
+        <button
+          onClick={handleNext}
+          disabled={currentPly === processedMoves.length}
+          style={btnStyle}
+        >
+          <IconNext />
+        </button>
       </div>
     </div>
   );
@@ -415,4 +498,6 @@ const btnStyle = {
   borderRadius: "8px",
   cursor: "pointer",
   fontWeight: "600",
+  display: "flex",
+  alignItems: "center",
 };
