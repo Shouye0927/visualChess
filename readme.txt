@@ -32,3 +32,5 @@ Step-by-Step Guide:
 Data access/resources: GitHub Raw Content
 https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/one_rapid_game.json
 https://raw.githubusercontent.com/Shouye0927/chess_data_provider/refs/heads/main/jackFoooo_Rapid.json
+
+All the visualization page is store in ./pages

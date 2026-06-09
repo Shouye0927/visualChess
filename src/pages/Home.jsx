@@ -292,11 +292,12 @@ export default function Home() {
         {/* Hero 區：主標題與副標題 */}
         <div className="ga-hero">
           <h1 className="ga-title">
-            GRANDMASTER <span className="ga-title-light">ANALYTICS</span>
+            Be<span className="ga-title-light">at The GM</span>
           </h1>
           <p className="ga-subtitle">
-            Precision visualization for the modern strategist. Decipher the
-            hidden geometries of the 64 squares.
+            A simple chess analysis tool that visualizes the strategic weight of
+            every square, identifies long-range threats, and maps out opening
+            theory with an interactive geometric tree.
           </p>
         </div>
 
